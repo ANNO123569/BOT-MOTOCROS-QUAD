@@ -1,41 +1,72 @@
 import os
 import time
+import threading
 import requests
 from flask import Flask, jsonify, render_template_string
 
 app = Flask(__name__)
 
-# Base de données temporaire pour stocker les annonces trouvées
 LATEST_ITEMS = []
-SEEN_IDS = set()
 
-# Recherche Leboncoin (Category 3: Véhicules/Motos - Mots clés: motocross quad)
-LBC_API_URL = "https://api.leboncoin.fr/api/adfinder/v1/search"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json"
-}
+def fetch_leboncoin():
+    global LATEST_ITEMS
+    url = "https://api.leboncoin.fr/api/adfinder/v1/search"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+        "Api-Key": "ba0c2dad58b3ec"
+    }
+    params = {
+        "category": "3",
+        "text": "motocross quad",
+        "regions": "all",
+        "limit": 30
+    }
+    
+    while True:
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                ads = data.get("ads", [])
+                items = []
+                for ad in ads:
+                    images = ad.get("images", {}).get("urls", [])
+                    photo = images[0] if images else ""
+                    item = {
+                        "title": ad.get("subject"),
+                        "price": f"{ad.get('price', [0])[0]} €" if ad.get('price') else "Prix non spécifié",
+                        "location": f"{ad.get('location', {}).get('city', '')} ({ad.get('location', {}).get('zipcode', '')})",
+                        "url": ad.get("url")
+                    }
+                    items.append(item)
+                if items:
+                    LATEST_ITEMS = items
+        except Exception as e:
+            print(f"Erreur de récupération : {e}")
+        
+        time.sleep(60) # Vérifie toutes les minutes
 
-# Interface Application Mobile (PWA)
-HTML_TEMPLATE = """
+# Lancer le thread de recherche en arrière-plan
+threading.Thread(target=fetch_leboncoin, daemon=True).start()
+
+HTML_TEMPLATE = \"\"\"
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LBC Moto & Quad</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 16px; }
+        body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 16px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #1e293b; padding-bottom: 12px; }
         .header h1 { font-size: 1.2rem; margin: 0; color: #38bdf8; }
         .status { background: #22c55e; color: #000; font-weight: bold; font-size: 0.75rem; padding: 4px 8px; border-radius: 12px; }
-        .card { background: #1e293b; border-radius: 12px; padding: 12px; margin-bottom: 16px; display: flex; gap: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
-        .card img { width: 90px; height: 90px; border-radius: 8px; object-fit: cover; background: #334155; }
-        .card-details { flex: 1; display: flex; flex-direction: column; justify-content: space-between; }
-        .title { font-weight: 600; font-size: 0.95rem; margin: 0 0 4px 0; color: #f1f5f9; }
+        .card { background: #1e293b; border-radius: 12px; padding: 12px; margin-bottom: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .title { font-weight: 600; font-size: 0.95rem; margin: 0 0 8px 0; color: #f1f5f9; }
         .price { color: #4ade80; font-weight: 700; font-size: 1.1rem; }
-        .location { font-size: 0.8rem; color: #94a3b8; }
-        .btn { background: #f97316; color: white; text-decoration: none; text-align: center; padding: 8px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; margin-top: 6px; display: block; }
+        .location { font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px; }
+        .btn { background: #f97316; color: white; text-decoration: none; text-align: center; padding: 8px; border-radius: 6px; font-weight: 600; display: block; }
     </style>
 </head>
 <body>
@@ -44,27 +75,25 @@ HTML_TEMPLATE = """
         <span class="status">● 24/7 Actif</span>
     </div>
     <div id="feed">
-        <p style="text-align: center; color: #64748b;">Recherche de nouvelles pépites en cours...</p>
+        <p style="text-align: center; color: #64748b;">Chargement des annonces...</p>
     </div>
-
     <script>
         async function fetchItems() {
             try {
                 const res = await fetch('/api/items');
                 const items = await res.json();
+                const feed = document.getElementById('feed');
                 if(items.length > 0) {
-                    const feed = document.getElementById('feed');
                     feed.innerHTML = items.map(item => `
                         <div class="card">
-                            <img src="${item.photo}" alt="moto">
-                            <div class="card-details">
-                                <p class="title">${item.title}</p>
-                                <span class="price">${item.price}</span>
-                                <span class="location">📍 ${item.location}</span>
-                                <a href="${item.url}" target="_blank" class="btn">⚡ Voir sur Leboncoin</a>
-                            </div>
+                            <p class="title">${item.title}</p>
+                            <div class="price">${item.price}</div>
+                            <div class="location">📍 ${item.location}</div>
+                            <a href="${item.url}" target="_blank" class="btn">⚡ Voir l'annonce</a>
                         </div>
                     `).join('');
+                } else {
+                    feed.innerHTML = '<p style="text-align: center; color: #64748b;">Aucune annonce trouvée pour le moment...</p>';
                 }
             } catch(e) { console.error(e); }
         }
@@ -73,7 +102,7 @@ HTML_TEMPLATE = """
     </script>
 </body>
 </html>
-"""
+\"\"\"
 
 @app.route('/')
 def home():
