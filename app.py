@@ -33,24 +33,28 @@ def fetch_leboncoin():
                 for ad in ads:
                     images = ad.get("images", {}).get("urls", [])
                     photo = images[0] if images else ""
+                    
+                    price_val = ad.get('price', [0])
+                    price_str = f"{price_val[0]} €" if isinstance(price_val, list) and price_val else "Prix N/C"
+                    
                     item = {
-                        "title": ad.get("subject"),
-                        "price": f"{ad.get('price', [0])[0]} €" if ad.get('price') else "Prix non spécifié",
-                        "location": f"{ad.get('location', {}).get('city', '')} ({ad.get('location', {}).get('zipcode', '')})",
-                        "url": ad.get("url")
+                        "title": ad.get("subject", "Sans titre"),
+                        "price": price_str,
+                        "location": f"{ad.get('location', {}).get('city', '')}",
+                        "url": ad.get("url", "#")
                     }
                     items.append(item)
                 if items:
                     LATEST_ITEMS = items
         except Exception as e:
-            print(f"Erreur de récupération : {e}")
+            print(f"Erreur : {e}")
         
-        time.sleep(60) # Vérifie toutes les minutes
+        time.sleep(60)
 
-# Lancer le thread de recherche en arrière-plan
+# Lancer la recherche en arrière-plan
 threading.Thread(target=fetch_leboncoin, daemon=True).start()
 
-HTML_TEMPLATE = \"\"\"
+HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -62,11 +66,11 @@ HTML_TEMPLATE = \"\"\"
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #1e293b; padding-bottom: 12px; }
         .header h1 { font-size: 1.2rem; margin: 0; color: #38bdf8; }
         .status { background: #22c55e; color: #000; font-weight: bold; font-size: 0.75rem; padding: 4px 8px; border-radius: 12px; }
-        .card { background: #1e293b; border-radius: 12px; padding: 12px; margin-bottom: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        .title { font-weight: 600; font-size: 0.95rem; margin: 0 0 8px 0; color: #f1f5f9; }
-        .price { color: #4ade80; font-weight: 700; font-size: 1.1rem; }
-        .location { font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px; }
-        .btn { background: #f97316; color: white; text-decoration: none; text-align: center; padding: 8px; border-radius: 6px; font-weight: 600; display: block; }
+        .card { background: #1e293b; border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .title { font-weight: 600; font-size: 1rem; margin: 0 0 6px 0; color: #f1f5f9; }
+        .price { color: #4ade80; font-weight: 700; font-size: 1.1rem; margin-bottom: 4px; }
+        .location { font-size: 0.85rem; color: #94a3b8; margin-bottom: 10px; }
+        .btn { background: #f97316; color: white; text-decoration: none; text-align: center; padding: 10px; border-radius: 8px; font-weight: 600; display: block; }
     </style>
 </head>
 <body>
@@ -75,7 +79,7 @@ HTML_TEMPLATE = \"\"\"
         <span class="status">● 24/7 Actif</span>
     </div>
     <div id="feed">
-        <p style="text-align: center; color: #64748b;">Chargement des annonces...</p>
+        <p style="text-align: center; color: #64748b;">Analyse des annonces en cours...</p>
     </div>
     <script>
         async function fetchItems() {
@@ -86,14 +90,12 @@ HTML_TEMPLATE = \"\"\"
                 if(items.length > 0) {
                     feed.innerHTML = items.map(item => `
                         <div class="card">
-                            <p class="title">${item.title}</p>
+                            <div class="title">${item.title}</div>
                             <div class="price">${item.price}</div>
                             <div class="location">📍 ${item.location}</div>
                             <a href="${item.url}" target="_blank" class="btn">⚡ Voir l'annonce</a>
                         </div>
                     `).join('');
-                } else {
-                    feed.innerHTML = '<p style="text-align: center; color: #64748b;">Aucune annonce trouvée pour le moment...</p>';
                 }
             } catch(e) { console.error(e); }
         }
@@ -102,7 +104,7 @@ HTML_TEMPLATE = \"\"\"
     </script>
 </body>
 </html>
-\"\"\"
+"""
 
 @app.route('/')
 def home():
